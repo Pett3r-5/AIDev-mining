@@ -29,7 +29,7 @@ SELECT COUNT(DISTINCT (pc1.committer))
     AND pr2.merged_at IS NOT NULL
     AND (
       pr1.created_at > pr2.merged_at
-      OR pc1.pr_id == pc2.pr_id --falta um campo de commit timestamp no schema
+      OR pc1.pr_id == pc2.pr_id --falta um campo de commit timestamp ou pc1.id numerico no schema
       )
     AND (
       pc2.committer LIKE '%[bot]'
@@ -49,4 +49,4 @@ SELECT COUNT(DISTINCT (pc1.committer))
         OR
         pc2.filename == replace(pc1.filename, 'ts', 'spec.ts')
     )
---result: 21
+--result: 14
