@@ -1,5 +1,5 @@
 # Getting Started:
-python3 app.py
+python3 script.py
 
 resultados em:
 results-v2.csv
