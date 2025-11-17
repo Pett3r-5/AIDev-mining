@@ -15,12 +15,14 @@ human_commits = notnull_commits[
 
 
 human_test_commits = human_commits[
-        human_commits["filename"].str.contains('test') &
-        ~human_commits["message"].str.startswith('Merge branch')
+        (human_commits["filename"].str.contains('test') |
+         human_commits["filename"].str.contains('spec')
+         ) &
+        ~human_commits["message"].str.startswith('Merge ')
     ]
 
 #debug
-# human_test_commits["filename"].to_csv("all-tests.csv")
+human_test_commits["filename"].to_csv("all-tests.csv")
 
 bot_commits = notnull_commits[
     (notnull_commits["author"] == "Copilot") |
