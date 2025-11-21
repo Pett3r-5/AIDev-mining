@@ -10,7 +10,8 @@ human_commits = notnull_commits[
     (notnull_commits["author"] != "Copilot") & 
     ~notnull_commits["author"].str.endswith('[bot]') &
     ~notnull_commits["author"].str.endswith('bot') &
-    (notnull_commits["author"] != 'cursoragent')]
+    ~notnull_commits["author"].str.endswith('agent')
+    ]
 
 
 
@@ -28,14 +29,13 @@ bot_commits = notnull_commits[
     (notnull_commits["author"] == "Copilot") |
     notnull_commits["author"].str.endswith('[bot]') |
     notnull_commits["author"].str.endswith('bot') |
-    (notnull_commits["author"] == 'cursoragent')
+    notnull_commits["author"].str.endswith('agent')
     ]
 
 
 all_pull_requests = pd.read_parquet("hf://datasets/hao-li/AIDev/all_pull_request.parquet")
 all_pull_requests = all_pull_requests[all_pull_requests["repo_url"].notnull() & 
-                                      all_pull_requests["created_at"].notnull() &
-                                      all_pull_requests["merged_at"].notnull()
+                                      all_pull_requests["created_at"].notnull()
                                       ]
 
 pr_timeline = pd.read_parquet("hf://datasets/hao-li/AIDev/pr_timeline.parquet")
@@ -58,6 +58,7 @@ bot_pull_request_commits["*filename*.test"] = None
 bot_pull_request_commits["*filename*.spec"] = None
 bot_pull_request_commits["*filename*_spec"] = None
 bot_pull_request_commits["*filename*_test"] = None
+bot_pull_request_commits["*filename*_tests"] = None
 bot_pull_request_commits["*filename*Test"] = None
 bot_pull_request_commits["*filename*Tests"] = None
 bot_pull_request_commits["Test*filename*"] = None
@@ -74,23 +75,33 @@ for index, row in bot_pull_request_commits.iterrows():
     bot_pull_request_commits.at[index, "*filename*.spec"] = filename_without_path.split('.' + extension)[0] + '.spec' + '.' + extension
     bot_pull_request_commits.at[index, "*filename*_spec"] = filename_without_path.split('.' + extension)[0] + '_spec' + '.' + extension
     bot_pull_request_commits.at[index, "*filename*_test"] = filename_without_path.split('.' + extension)[0] + '_test.' + extension
+    bot_pull_request_commits.at[index, "*filename*_tests"] = filename_without_path.split('.' + extension)[0] + '_tests.' + extension
     bot_pull_request_commits.at[index, "*filename*Test"] = filename_without_path.split('.' + extension)[0] + 'Test.' + extension
     bot_pull_request_commits.at[index, "*filename*Tests"] = filename_without_path.split('.' + extension)[0] + 'Tests.' + extension
     bot_pull_request_commits.at[index, "Test*filename*"] = 'Test' + filename_without_path
     bot_pull_request_commits.at[index, "test_*filename*"] = 'test_' + filename_without_path
 
-    if (not row["filename"].startswith('test')) and (not '/test/' in row["filename"]) and (not '/tests/' in row["filename"]) :
+    if (
+        (not row["filename"].startswith('test')) and
+        (not row["filename"].startswith('__test')) and 
+        (not '/test/' in row["filename"]) and 
+        (not '/tests/' in row["filename"]) and
+        (not '/__tests__/' in row["filename"])
+        ) :
         filename_without_path = row["filename"].split('/')[-1]
         bot_pull_request_commits.at[index, "filename-test-folder"] = filename_without_path  
 
 
 
 test_root_dir_human_commits = human_test_pull_commits[
-        ((human_test_pull_commits["filename"].str.startswith('test')) &
+        ((human_test_pull_commits["filename"].str.startswith('test')) |
+          (human_test_pull_commits["filename"].str.startswith('__test')
+        ) &
          (human_test_pull_commits["filename"].str.contains('/'))
          ) |
         (human_test_pull_commits["filename"].str.contains('/test/')) |
-        (human_test_pull_commits["filename"].str.contains('/tests/'))
+        (human_test_pull_commits["filename"].str.contains('/tests/')) |
+        (human_test_pull_commits["filename"].str.contains('/__tests__/'))
 ].copy()
 
 
@@ -113,13 +124,16 @@ dotTestFiles["test-filename-pattern"] = '*filename*.test'
 underscoreTestFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["*filename*_test", "repo_url"], how='inner')
 underscoreTestFiles["test-filename-pattern"] = '*filename*_test'
 
+underscoreTestsPluralFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["*filename*_tests", "repo_url"], how='inner')
+underscoreTestsPluralFiles["test-filename-pattern"] = '*filename*_tests'
+
 endswithTestFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["*filename*Test", "repo_url"], how='inner')
 endswithTestFiles["test-filename-pattern"] = '*filename*Test'
 
 endswithTestsPluralFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["*filename*Tests", "repo_url"], how='inner')
 endswithTestsPluralFiles["test-filename-pattern"] = '*filename*Tests'
 
-startswithTestFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["*filename*_test", "repo_url"], how='inner')
+startswithTestFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["Test*filename*", "repo_url"], how='inner')
 startswithTestFiles["test-filename-pattern"] = 'Test*filename*'
 
 startswithUnderscoreTestFiles = pd.merge(human_test_pull_commits, bot_pull_request_commits, left_on=["filename", "repo_url"], right_on=["test_*filename*", "repo_url"], how='inner')
@@ -129,10 +143,27 @@ testFolders = pd.merge(test_root_dir_human_commits, bot_pull_request_commits, le
 testFolders["test-filename-pattern"] = 'filename-test-folder'
 
 
-final_dataframe = pd.concat([dotSpecFiles, underscoreSpecFiles, dotTestFiles, underscoreTestFiles, endswithTestFiles, endswithTestsPluralFiles, startswithTestFiles, testFolders, startswithUnderscoreTestFiles])
+final_dataframe = pd.concat([dotSpecFiles, underscoreSpecFiles, dotTestFiles, underscoreTestFiles, underscoreTestsPluralFiles, endswithTestFiles, endswithTestsPluralFiles, startswithTestFiles, testFolders, startswithUnderscoreTestFiles])
+
+print('len(final_dataframe)')
+print(len(final_dataframe))
 
 final_dataframe = final_dataframe[
-    (final_dataframe["created_at_x"] > final_dataframe["merged_at_y"]) | 
+    (   
+        (final_dataframe["pr_id_x_x"] != final_dataframe["pr_id_x_y"]) &
+        (
+            (
+            final_dataframe["merged_at_y"].notnull() &
+            (final_dataframe["created_at_x"] > final_dataframe["merged_at_y"])
+            ) |
+            (
+            final_dataframe["merged_at_y"].isnull() &
+            (final_dataframe["created_at_x"] > final_dataframe["created_at_x"])
+            )
+        )
+        
+    )
+     | 
     (
         (final_dataframe["pr_id_x_x"] == final_dataframe["pr_id_x_y"]) & 
         (
@@ -142,12 +173,12 @@ final_dataframe = final_dataframe[
         )
      
      )
-                ].drop_duplicates(subset=['author_x'])
+                ]
 
-
+final_dataframe = final_dataframe.drop_duplicates(subset=['author_x'])
 
 all_users = all_users.rename(columns={'created_at':'user_created_at'})
-final_dataframe_with_users = pd.merge(final_dataframe, all_users, left_on="author_x", right_on="login", how='inner').sort_values(by='user_created_at')
+final_dataframe_with_users = pd.merge(final_dataframe, all_users, left_on="author_x", right_on="login", how='left').sort_values(by='user_created_at')
 
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_x':'human_username'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_y':'agent_username'})
