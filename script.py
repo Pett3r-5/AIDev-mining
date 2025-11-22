@@ -154,9 +154,6 @@ testFolders["test-filename-pattern"] = 'filename-test-folder'
 
 final_dataframe = pd.concat([dotSpecFiles, underscoreSpecFiles, dotTestFiles, underscoreTestFiles, underscoreTestsPluralFiles, endswithTestFiles, endswithTestsPluralFiles, startswithTestFiles, testFolders, startswithUnderscoreTestFiles])
 
-print('len(final_dataframe)')
-print(len(final_dataframe))
-
 final_dataframe = final_dataframe[
     (   
         (final_dataframe["pr_id_x_x"] != final_dataframe["pr_id_x_y"]) &
@@ -198,10 +195,12 @@ null_date_users = final_dataframe_with_users[
 ]
 
 for index, row in null_date_users.iterrows():
-    response = requests.get(GITHUB_CONFIG[ 'URL'] + row["author_x"], GITHUB_CONFIG[ "HEADERS"])
+    response = requests.get(GITHUB_CONFIG[ 'URL'] + row["author_x"], GITHUB_CONFIG[ "HEADERS"], auth=('*github_username*','*github_access_token*'))
     if response.status_code == 200:
         responseData = response.json()
         null_date_users.at[index, "user_created_at"] = responseData["created_at"]
+    else:
+        print(response.json())
     
 final_dataframe_with_users = pd.concat([ not_null_date_users, null_date_users])
 
