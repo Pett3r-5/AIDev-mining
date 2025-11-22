@@ -1,4 +1,13 @@
 import pandas as pd
+import requests
+
+GITHUB_CONFIG = {
+    'URL': 'https://api.github.com//users/',
+    'HEADERS': {
+        ' Accept': 'Application/vnd-github+json*',
+        'Authorization': ''
+        },
+}
 
 all_commit_details = pd.read_parquet("hf://datasets/hao-li/AIDev/pr_commit_details.parquet")
 all_users = pd.read_parquet("hf://datasets/hao-li/AIDev/all_user.parquet")
@@ -179,6 +188,22 @@ final_dataframe = final_dataframe.drop_duplicates(subset=['author_x'])
 
 all_users = all_users.rename(columns={'created_at':'user_created_at'})
 final_dataframe_with_users = pd.merge(final_dataframe, all_users, left_on="author_x", right_on="login", how='left').sort_values(by='user_created_at')
+
+not_null_date_users = final_dataframe_with_users[
+    final_dataframe_with_users["user_created_at"].notnull()
+]
+
+null_date_users = final_dataframe_with_users[
+    final_dataframe_with_users["user_created_at"].isnull()
+]
+
+for index, row in null_date_users.iterrows():
+    response = requests.get(GITHUB_CONFIG[ 'URL'] + row["author_x"], GITHUB_CONFIG[ "HEADERS"])
+    if response.status_code == 200:
+        responseData = response.json()
+        null_date_users.at[index, "user_created_at"] = responseData["created_at"]
+    
+final_dataframe_with_users = pd.concat([ not_null_date_users, null_date_users])
 
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_x':'human_username'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_y':'agent_username'})
