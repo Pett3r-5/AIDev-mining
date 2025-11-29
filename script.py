@@ -1,5 +1,6 @@
 import pandas as pd
-import requests
+import math
+import scipy.stats as stats
 
 GITHUB_CONFIG = {
     'URL': 'https://api.github.com//users/',
@@ -186,28 +187,81 @@ final_dataframe = final_dataframe.drop_duplicates(subset=['author_x'])
 all_users = all_users.rename(columns={'created_at':'user_created_at'})
 final_dataframe_with_users = pd.merge(final_dataframe, all_users, left_on="author_x", right_on="login", how='left').sort_values(by='user_created_at')
 
-not_null_date_users = final_dataframe_with_users[
-    final_dataframe_with_users["user_created_at"].notnull()
-]
-
-null_date_users = final_dataframe_with_users[
-    final_dataframe_with_users["user_created_at"].isnull()
-]
-
-for index, row in null_date_users.iterrows():
-    response = requests.get(GITHUB_CONFIG[ 'URL'] + row["author_x"], GITHUB_CONFIG[ "HEADERS"], auth=('*github_username*','*github_access_token*'))
-    if response.status_code == 200:
-        responseData = response.json()
-        null_date_users.at[index, "user_created_at"] = responseData["created_at"]
-    else:
-        print(response.json())
-    
-final_dataframe_with_users = pd.concat([ not_null_date_users, null_date_users])
-
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_x':'human_username'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'author_y':'agent_username'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'html_url_x':'human_html_url'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'html_url_y':'agent_html_url'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'sha_x':'human_sha'})
 final_dataframe_with_users = final_dataframe_with_users.rename(columns={'sha_y':'agent_sha'})
-final_dataframe_with_users[["human_html_url", "agent_html_url", "human_sha", "agent_sha", "human_username", "agent_username", "original-filename", "user_created_at", "test-filename-pattern"]].to_csv("results-v2.csv")
+
+
+
+filtered_results = final_dataframe_with_users[["human_html_url", "agent_html_url", "human_sha", "agent_sha", "human_username", "agent_username", "original-filename", "user_created_at", "test-filename-pattern"]]
+
+all_commit_details = pd.read_parquet("hf://datasets/hao-li/AIDev/pr_commit_details.parquet")
+pr_reviews = pd.read_parquet("hf://datasets/hao-li/AIDev/pr_reviews.parquet")
+
+all_commit_details_humans = all_commit_details[
+    all_commit_details["author"].notnull()
+]
+
+all_commit_details_humans = all_commit_details_humans[
+    (all_commit_details_humans["author"] != "Copilot") & 
+    ~all_commit_details_humans["author"].str.endswith('[bot]') &
+    ~all_commit_details_humans["author"].str.endswith('bot') &
+    ~all_commit_details_humans["author"].str.endswith('agent')
+]
+
+pr_reviews_filtered_results = pr_reviews[
+    pr_reviews['user'].isin(filtered_results["human_username"])
+]
+
+pr_reviews_total_population = pr_reviews[
+    pr_reviews['user'].isin(all_commit_details_humans["author"])
+]
+
+
+
+# conta total de interaçoes em PR reviews por user
+# possíveis interaçoes: COMMENTED, APPROVED, CHANGES_REQUESTED, DISMISSED
+pr_count_filtered_results = pr_reviews_filtered_results['user'].value_counts()
+pr_count_total_population = pr_reviews_total_population['user'].value_counts()
+
+
+filtered_results_with_pr_info = pd.merge(filtered_results, pr_count_filtered_results, left_on="human_username", right_on="user", how='left')
+all_commits_with_pr_info = pd.merge(all_commit_details_humans, pr_count_total_population, left_on="author", right_on="user", how='left')
+
+all_commits_with_pr_info = all_commits_with_pr_info.drop_duplicates(subset=['author'])
+
+# seta default de 0 para usuarios que nao tiveram nenhuma interaçao em PR
+filtered_results_with_pr_info['count'] = filtered_results_with_pr_info['count'].apply(lambda count: 0 if math.isnan(count) else count)
+all_commits_with_pr_info['count'] = all_commits_with_pr_info['count'].apply(lambda count: 0 if math.isnan(count) else count)
+
+
+
+filtered_results_with_pr_info["count"] = filtered_results_with_pr_info["count"].astype(int)
+all_commits_with_pr_info["count"] = all_commits_with_pr_info["count"].astype(int)
+filtered_results_with_pr_info = filtered_results_with_pr_info.sort_values(by='count')
+all_commits_with_pr_info = all_commits_with_pr_info.sort_values(by='count')
+all_commits_with_pr_info = all_commits_with_pr_info[["sha", "author", "filename", "status", "count"]]
+
+filtered_results_with_pr_info = filtered_results_with_pr_info.rename(columns={'count':'pr_review_count'})
+all_commits_with_pr_info = all_commits_with_pr_info.rename(columns={'count':'pr_review_count'})
+
+
+filtered_results_with_pr_info.to_csv("final-selected-users.csv")
+all_commits_with_pr_info.to_csv("all-users.csv")
+
+
+
+grupo_a_normalidade = stats.shapiro(filtered_results_with_pr_info["pr_review_count"].to_numpy())
+print('Normalidade grupo A: ', f"{grupo_a_normalidade.pvalue:f}")
+print('Normalidade grupo A: ', grupo_a_normalidade.pvalue)
+
+grupo_b_normalidade = stats.shapiro(all_commits_with_pr_info["pr_review_count"].to_numpy())
+print('Normalidade grupo B: ', f"{grupo_b_normalidade.pvalue:f}")
+print('Normalidade grupo B: ', grupo_b_normalidade.pvalue)
+
+mannwhitneyuResult = stats.mannwhitneyu(filtered_results_with_pr_info["pr_review_count"].to_numpy(), all_commits_with_pr_info["pr_review_count"].to_numpy())
+print('Mann-Whitney U Resultado: ', f"{mannwhitneyuResult.pvalue:f}")
+print('Mann-Whitney U Resultado: ', mannwhitneyuResult.pvalue)
