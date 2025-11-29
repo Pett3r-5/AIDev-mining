@@ -249,7 +249,7 @@ filtered_results_with_pr_info = filtered_results_with_pr_info.rename(columns={'c
 all_commits_with_pr_info = all_commits_with_pr_info.rename(columns={'count':'pr_review_count'})
 
 
-filtered_results_with_pr_info.to_csv("final-selected-users.csv")
+filtered_results_with_pr_info.to_csv("selected-users.csv")
 all_commits_with_pr_info.to_csv("all-users.csv")
 
 
